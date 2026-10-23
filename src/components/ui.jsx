@@ -203,11 +203,11 @@ export function Modal({ open, onClose, title, subtitle, children, footer, maxWid
   );
 }
 
-export function ConfirmDialog({ open, title, message, confirmLabel = 'Delete', onConfirm, onCancel }) {
+export function ConfirmDialog({ open, title, message, confirmLabel = 'Delete', tone = 'danger', onConfirm, onCancel }) {
   return (
     <Modal
       open={open} onClose={onCancel} title={title} maxWidth="md:max-w-md"
-      footer={<div className="flex justify-end gap-2"><Btn variant="outline" onClick={onCancel}>Cancel</Btn><Btn variant="dark" className="!bg-rose-600 hover:!bg-rose-700" onClick={onConfirm}>{confirmLabel}</Btn></div>}
+      footer={<div className="flex justify-end gap-2"><Btn variant="outline" onClick={onCancel}>Cancel</Btn><Btn variant={tone === 'primary' ? 'primary' : 'dark'} className={tone === 'primary' ? '' : '!bg-rose-600 hover:!bg-rose-700'} onClick={onConfirm}>{confirmLabel}</Btn></div>}
     >
       <p className="text-sm leading-relaxed text-slate-600">{message}</p>
     </Modal>

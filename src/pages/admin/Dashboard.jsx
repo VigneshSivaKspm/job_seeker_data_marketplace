@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Check, Clock, Receipt, SlidersHorizontal, Store, TrendingUp, UserCheck, Users, Wallet } from 'lucide-react';
+import { ArrowRight, Check, Clock, Coins, Receipt, SlidersHorizontal, Store, TrendingUp, UserCheck, Users, Wallet } from 'lucide-react';
 import { useApp } from '../../context/AppContext.jsx';
-import { cx, fmtDate, fmtINR, fmtINR2, round2 } from '../../lib/utils.js';
+import { cx, fmtDate, fmtINR, fmtINR2, orderSummary, round2 } from '../../lib/utils.js';
 import { Avatar, Badge, Btn, Card, IndustryTile } from '../../components/ui.jsx';
 
 function StatCard({ icon: Icon, label, value, sub, grad }) {
@@ -26,7 +26,8 @@ function RevenueChart({ points }) {
   const W = 720, H = 250, pad = { l: 48, r: 16, t: 16, b: 30 };
   const n = points.length;
   const rawMax = Math.max(...points.map((p) => p.value), 0);
-  const step = rawMax <= 50 ? 10 : rawMax <= 200 ? 50 : 100;
+  const pow = 10 ** Math.floor(Math.log10(Math.max(rawMax, 1) / 2));
+  const step = [1, 2, 5, 10].map((m) => m * pow).find((s) => s * 2 >= rawMax) || pow * 10;
   const max = Math.max(step * 2, Math.ceil(rawMax / step) * step);
   const x = (i) => pad.l + (i * (W - pad.l - pad.r)) / Math.max(n - 1, 1);
   const y = (v) => H - pad.b - (v / max) * (H - pad.t - pad.b);
@@ -49,7 +50,7 @@ function RevenueChart({ points }) {
         {ticks.map((t) => (
           <g key={t}>
             <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke="#e2e8f0" strokeDasharray={t === 0 ? '' : '3 4'} />
-            <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="#94a3b8" fontWeight="600">${Math.round(t)}</text>
+            <text x={pad.l - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="#94a3b8" fontWeight="600">{t >= 1000 ? `₹${t / 1000}k` : `₹${Math.round(t)}`}</text>
           </g>
         ))}
         <path d={area} fill="url(#rev)" />
@@ -80,7 +81,9 @@ function RevenueChart({ points }) {
 export default function Dashboard() {
   const { candidates, orders, categories, updateCandidate, toast } = useApp();
   const [range, setRange] = useState(14);
+  const paidOrders = orders.filter((o) => o.kind !== 'redeem');
   const leadsSold = orders.reduce((s, o) => s + o.candidateIds.length, 0);
+  const creditsSold = orders.reduce((s, o) => s + (o.credits || 0), 0);
   const revenue = round2(orders.reduce((s, o) => s + o.total, 0));
   const pending = candidates.filter((c) => c.status === 'Pending Verification');
   const counts = { Active: 0, 'Pending Verification': 0, 'Sold Out': 0 };
@@ -134,7 +137,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-3 md:gap-5 xl:grid-cols-4">
         <StatCard icon={Users} grad="from-indigo-500 to-violet-500" label="Job seekers registered" value={candidates.length} sub={`${counts.Active} active · ${counts['Pending Verification']} pending`} />
         <StatCard icon={UserCheck} grad="from-emerald-500 to-teal-500" label="Leads sold" value={leadsSold} sub={`${orders.length} orders`} />
-        <StatCard icon={Wallet} grad="from-amber-500 to-orange-500" label="Revenue generated" value={fmtINR2(revenue)} sub={orders.length ? `Avg order ${fmtINR2(revenue / orders.length)}` : undefined} />
+        <StatCard icon={Wallet} grad="from-amber-500 to-orange-500" label="Revenue generated" value={fmtINR2(revenue)} sub={paidOrders.length ? `Avg order ${fmtINR2(revenue / paidOrders.length)}` : undefined} />
         <StatCard icon={TrendingUp} grad="from-fuchsia-500 to-pink-500" label="Top industry" value={<span className="text-xl md:text-2xl">{byIndustry[0]?.leads ? byIndustry[0].cat.name : '—'}</span>} sub={byIndustry[0]?.leads ? `${byIndustry[0].leads} leads sold` : undefined} />
       </div>
 
@@ -172,7 +175,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Card title="Top selling industries" subtitle="Leads sold, with revenue">
+        <Card title="Top selling industries" subtitle="Leads sold, with attributed revenue">
           <ul className="space-y-4">
             {byIndustry.map((r) => (
               <li key={r.cat.id} className="flex items-center gap-3">
@@ -194,8 +197,8 @@ export default function Dashboard() {
             {orders.slice(0, 6).map((o) => (
               <li key={o.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600"><Receipt size={17} /></span>
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-900">{o.buyer} <span className="font-medium text-slate-400">· {o.id}</span></p><p className="truncate text-xs text-slate-500">{o.company} · {o.candidateIds.length} leads · {fmtDate(o.date)}</p></div>
-                <span className="font-extrabold text-slate-900">{fmtINR2(o.total)}</span>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-900">{o.buyer} <span className="font-medium text-slate-400">· {o.id}</span></p><p className="truncate text-xs text-slate-500">{o.company} · {orderSummary(o)} · {fmtDate(o.date)}</p></div>
+                {o.kind === 'redeem' ? <Badge tone="amber" icon={Coins}>Credits</Badge> : <span className="font-extrabold text-slate-900">{fmtINR2(o.total)}</span>}
               </li>
             ))}
           </ul>

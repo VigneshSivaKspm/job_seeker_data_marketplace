@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import { THEMES } from '../lib/data.js';
-import { cx } from '../lib/utils.js';
+import { cx, fmtINR, fmtINR2 } from '../lib/utils.js';
 import { Badge, Btn, IndustryTile, Reveal } from '../components/ui.jsx';
 import { CandidateCard } from '../components/market.jsx';
 
@@ -290,7 +290,9 @@ function Industries() {
 /* ----------------------------- recruiters band --------------------------- */
 
 function RecruiterBand() {
-  const { candidates } = useApp();
+  const { candidates, packages } = useApp();
+  const sortedPkgs = [...packages].sort((a, b) => a.contacts - b.contacts).slice(0, 4);
+  const minRate = packages.length ? Math.min(...packages.map((p) => p.price / p.contacts)) : 0;
   const picks = candidates.filter((c) => c.status === 'Active').sort((a, b) => b.years - a.years).slice(0, 3);
   return (
     <section className="relative overflow-hidden bg-slate-950 py-20">
@@ -308,8 +310,26 @@ function RecruiterBand() {
         <div className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {picks.map((c, i) => <Reveal key={c.id} delay={i * 100}><CandidateCard c={c} /></Reveal>)}
         </div>
+        {sortedPkgs.length > 0 && (
+          <div className="mt-12">
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+              <div><h3 className="text-2xl font-extrabold tracking-tight text-white">Bulk contact packages</h3><p className="text-slate-400">Buy credits once, unlock any profile for 1 credit.</p></div>
+              <Link to="/marketplace/packages" className="inline-flex items-center gap-1.5 text-sm font-bold text-indigo-300 hover:text-white">See all packages <ArrowRight size={15} /></Link>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {sortedPkgs.map((p, i) => (
+                <Link key={p.id} to="/marketplace/packages" className={cx('group relative rounded-3xl p-5 ring-1 transition duration-300 hover:-translate-y-1', p.popular ? 'bg-brand text-white ring-white/30 shadow-lift' : 'bg-white/5 text-white ring-white/10 hover:bg-white/10')}>
+                  {p.popular && <span className="absolute -top-3 right-4 rounded-full bg-amber-400 px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-900">Popular</span>}
+                  <div className="text-xs font-bold uppercase tracking-widest text-white/60">{p.name}</div>
+                  <div className="mt-1 text-3xl font-extrabold tracking-tight">{p.contacts.toLocaleString('en-IN')} <span className="text-base font-bold text-white/70">contacts</span></div>
+                  <div className="mt-3 flex items-baseline gap-2"><span className="text-2xl font-extrabold">{fmtINR(p.price)}</span><span className="text-sm text-white/60">{fmtINR2(p.price / p.contacts)}/contact</span></div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-10 grid gap-4 sm:grid-cols-3">
-          {[[Zap, 'Instant unlock', 'Details appear the moment payment clears.'], [Wallet, 'From $5 per lead', 'Priced by seniority and industry rarity.'], [Check, 'CSV & Excel export', 'Drop leads straight into your ATS or CRM.']].map(([Icon, t, d]) => (
+          {[[Zap, 'Instant unlock', 'Details appear the moment payment clears.'], [Wallet, `From ${fmtINR(minRate)} per contact`, 'Bulk packs: 100 contacts for ₹1,000, 1,000 for ₹7,000.'], [Check, 'CSV & Excel export', 'Drop leads straight into your ATS or CRM.']].map(([Icon, t, d]) => (
             <div key={t} className="flex items-start gap-3 rounded-2xl bg-white/5 p-5 ring-1 ring-white/10 backdrop-blur">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-indigo-300"><Icon size={19} /></span>
               <div><h3 className="font-bold text-white">{t}</h3><p className="text-sm text-slate-400">{d}</p></div>

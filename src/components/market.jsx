@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Briefcase, Check, CircleCheck, Clock, CreditCard, Download, ExternalLink, Eye, FileSpreadsheet, GraduationCap,
+  Briefcase, Check, CircleCheck, Coins, Minus, Clock, CreditCard, Download, ExternalLink, Eye, FileSpreadsheet, GraduationCap,
   Landmark, Lock, Mail, MapPin, Package, Phone, Plus, Receipt, ShieldCheck, ShoppingBag, Smartphone, Tag, Trash2,
   Unlock, UserCheck, Wallet,
 } from 'lucide-react';
@@ -18,9 +18,18 @@ export const DEFAULT_FILTERS = { q: '', industry: 'All', role: 'All', minExp: 'A
 /* ------------------------------ buy button ------------------------------ */
 
 export function BuyButton({ c, size = 'md', className }) {
-  const { isUnlocked, inCart, addLead, setCartOpen, priceOf } = useApp();
+  const { isUnlocked, inCart, addLead, setCartOpen, priceOf, wallet, unlockWithCredits } = useApp();
   if (isUnlocked(c.id)) return <Badge tone="emerald" icon={Unlock} className="px-3 py-2 text-xs">Unlocked</Badge>;
   if (c.status === 'Sold Out') return <Btn size={size} variant="outline" disabled className={className}>Sold out</Btn>;
+  if (wallet.credits > 0)
+    return (
+      <div className="flex items-center gap-1.5">
+        <Btn size={size} variant="success" icon={Unlock} className={className} onClick={(e) => { e.stopPropagation(); unlockWithCredits([c.id]); }}>Unlock · 1 credit</Btn>
+        {inCart(c.id)
+          ? <button onClick={(e) => { e.stopPropagation(); setCartOpen(true); }} aria-label="In cart" title="In cart" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><Check size={17} /></button>
+          : <button onClick={(e) => { e.stopPropagation(); addLead(c.id); }} aria-label={`Add to cart for ${fmtINR(priceOf(c))}`} title={`Buy for ${fmtINR(priceOf(c))} instead`} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-indigo-50 hover:text-indigo-600"><Plus size={17} /></button>}
+      </div>
+    );
   if (inCart(c.id)) return <Btn size={size} variant="success" icon={Check} className={className} onClick={(e) => { e.stopPropagation(); setCartOpen(true); }}>In cart</Btn>;
   return (
     <Btn size={size} icon={Plus} className={className} onClick={(e) => { e.stopPropagation(); addLead(c.id); }}>
@@ -28,7 +37,6 @@ export function BuyButton({ c, size = 'md', className }) {
     </Btn>
   );
 }
-
 function MaskedLine({ icon: Icon, text, unlocked }) {
   return (
     <div className={cx('flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs', unlocked ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-50 text-slate-500')}>
@@ -198,13 +206,14 @@ export function FilterPanel({ filters, setFilters }) {
 /* ------------------------------ cart drawer ------------------------------ */
 
 export function CartSheet() {
-  const { cartOpen, setCartOpen, cartItems, cartTotals, promo, setPromo, applyPromo, removeFromCart, setCheckoutOpen } = useApp();
+  const { cartOpen, setCartOpen, cartItems, cartTotals, promo, setPromo, applyPromo, removeFromCart, setPackageQty, setCheckoutOpen } = useApp();
   const [code, setCode] = useState('');
   const promoShort = promo && cartTotals.subtotal < promo.min;
+  const sub = [cartTotals.leadCount ? `${cartTotals.leadCount} profile${cartTotals.leadCount > 1 ? 's' : ''}` : '', cartTotals.credits ? `${cartTotals.credits.toLocaleString('en-IN')} contact credits` : ''].filter(Boolean).join(' · ');
   return (
     <Sheet
       open={cartOpen} onClose={() => setCartOpen(false)} title="Your cart"
-      subtitle={cartItems.length ? `${cartItems.length} item${cartItems.length > 1 ? 's' : ''} · ${cartTotals.leadCount} candidate profiles` : undefined}
+      subtitle={cartItems.length ? `${cartItems.length} item${cartItems.length > 1 ? 's' : ''} · ${sub}` : undefined}
       footer={cartItems.length > 0 && (
         <div>
           <div className="mb-3 flex items-end justify-between"><span className="text-sm font-bold text-slate-500">Total</span><span className="text-3xl font-extrabold tracking-tight text-slate-900">{fmtINR2(cartTotals.total)}</span></div>
@@ -213,18 +222,29 @@ export function CartSheet() {
       )}
     >
       {cartItems.length === 0 ? (
-        <EmptyState icon={ShoppingBag} title="Your cart is empty" text="Add individual profiles or save with a dataset bundle." action={<Btn as={Link} to="/marketplace/bundles" onClick={() => setCartOpen(false)}>See bundles</Btn>} />
+        <EmptyState icon={ShoppingBag} title="Your cart is empty" text="Add individual profiles, save with a bundle, or buy a bulk contact package." action={<Btn as={Link} to="/marketplace/packages" onClick={() => setCartOpen(false)}>See bulk packages</Btn>} />
       ) : (
         <>
           <ul className="space-y-3">
             {cartItems.map((i) => (
               <li key={i.key} className="flex items-start gap-3 rounded-2xl border border-slate-200 p-3.5">
-                <div className={cx('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white', i.type === 'bundle' ? 'bg-gradient-to-br from-emerald-500 to-teal-500' : 'bg-brand')}>
-                  {i.type === 'bundle' ? <Package size={19} /> : <UserCheck size={19} />}
+                <div className={cx('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white', i.type === 'bundle' ? 'bg-gradient-to-br from-emerald-500 to-teal-500' : i.type === 'package' ? 'bg-gradient-to-br from-amber-500 to-orange-500' : 'bg-brand')}>
+                  {i.type === 'bundle' ? <Package size={19} /> : i.type === 'package' ? <Coins size={19} /> : <UserCheck size={19} />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-extrabold text-slate-900">{i.type === 'bundle' ? i.name : i.candidate.role}</p>
-                  <p className="truncate text-xs text-slate-500">{i.type === 'bundle' ? `${i.candidates.length} profiles · ${i.discount}% bundle discount` : `${maskName(i.candidate.name)} · ${i.candidate.experience} · ${i.candidate.id}`}</p>
+                  <p className="truncate text-sm font-extrabold text-slate-900">{i.type === 'bundle' ? i.name : i.type === 'package' ? `${i.pkg.name} package` : i.candidate.role}</p>
+                  <p className="truncate text-xs text-slate-500">
+                    {i.type === 'bundle' && `${i.candidates.length} profiles · ${i.discount}% bundle discount`}
+                    {i.type === 'package' && `${i.credits.toLocaleString('en-IN')} credits · ${fmtINR2(i.pkg.price / i.pkg.contacts)}/contact`}
+                    {i.type === 'lead' && `${maskName(i.candidate.name)} · ${i.candidate.experience} · ${i.candidate.id}`}
+                  </p>
+                  {i.type === 'package' && (
+                    <div className="mt-2 inline-flex items-center rounded-full bg-slate-100 p-0.5">
+                      <button onClick={() => setPackageQty(i.key, i.qty - 1)} aria-label="Decrease quantity" className="flex h-7 w-7 items-center justify-center rounded-full text-slate-600 hover:bg-white"><Minus size={14} /></button>
+                      <span className="w-8 text-center text-sm font-extrabold text-slate-900" aria-live="polite">{i.qty}</span>
+                      <button onClick={() => setPackageQty(i.key, i.qty + 1)} aria-label="Increase quantity" className="flex h-7 w-7 items-center justify-center rounded-full text-slate-600 hover:bg-white"><Plus size={14} /></button>
+                    </div>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-extrabold text-slate-900">{fmtINR(i.price)}</div>
@@ -253,7 +273,7 @@ export function CartSheet() {
           </div>
 
           <dl className="mt-5 space-y-2.5 text-sm">
-            <div className="flex justify-between text-slate-600"><dt>Subtotal ({cartTotals.leadCount} profiles)</dt><dd className="font-semibold">{fmtINR2(cartTotals.gross)}</dd></div>
+            <div className="flex justify-between text-slate-600"><dt>Subtotal</dt><dd className="font-semibold">{fmtINR2(cartTotals.gross)}</dd></div>
             {cartTotals.bundleSavings > 0 && <div className="flex justify-between text-emerald-600"><dt>Bundle savings</dt><dd className="font-semibold">−{fmtINR2(cartTotals.bundleSavings)}</dd></div>}
             {cartTotals.promoDiscount > 0 && <div className="flex justify-between text-emerald-600"><dt>Promo {promo.code}</dt><dd className="font-semibold">−{fmtINR2(cartTotals.promoDiscount)}</dd></div>}
             <div className="flex justify-between border-t border-slate-100 pt-3 text-base font-extrabold text-slate-900"><dt>Total</dt><dd>{fmtINR2(cartTotals.total)}</dd></div>
@@ -263,7 +283,6 @@ export function CartSheet() {
     </Sheet>
   );
 }
-
 /* ------------------------------ preview sheet ---------------------------- */
 
 export function PreviewSheet() {
@@ -364,18 +383,18 @@ export function CheckoutModal() {
   if (stage === 'receipt' && order)
     return (
       <Modal open={checkoutOpen} onClose={close} title="Payment successful" maxWidth="md:max-w-xl"
-        footer={<div className="flex flex-col gap-2 sm:flex-row">
+        footer={order.candidateIds.length ? <div className="flex flex-col gap-2 sm:flex-row">
           <Btn variant="success" size="lg" icon={Download} className="flex-1" onClick={() => exportLeads(order.candidateIds, 'CSV', `leads-${order.id}`, [order.id])}>CSV</Btn>
           <Btn variant="outline" size="lg" icon={FileSpreadsheet} className="flex-1" onClick={() => exportLeads(order.candidateIds, 'Excel', `leads-${order.id}`, [order.id])}>Excel</Btn>
           <Btn size="lg" icon={Unlock} className="flex-1" onClick={() => { setCheckoutOpen(false); navigate('/marketplace/purchases'); }}>View data</Btn>
-        </div>}>
+        </div> : <Btn size="xl" className="w-full" icon={Unlock} onClick={() => { setCheckoutOpen(false); navigate('/marketplace'); }}>Start unlocking profiles</Btn>}>
         <div className="flex flex-col items-center py-2 text-center">
           <div className="relative mb-4">
             <span className="absolute inset-0 animate-ping-slow rounded-full bg-emerald-400/40" />
             <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-xl shadow-emerald-500/30"><CircleCheck size={42} /></div>
           </div>
-          <h3 className="text-2xl font-extrabold tracking-tight text-slate-900">{order.candidateIds.length} profiles unlocked</h3>
-          <p className="mt-1 text-sm text-slate-500">Full names, emails and phone numbers are now visible across the marketplace.</p>
+          <h3 className="text-2xl font-extrabold tracking-tight text-slate-900">{order.credits && !order.candidateIds.length ? `${order.credits.toLocaleString('en-IN')} contact credits added` : `${order.candidateIds.length} profiles unlocked${order.credits ? ` · +${order.credits.toLocaleString('en-IN')} credits` : ''}`}</h3>
+          <p className="mt-1 text-sm text-slate-500">{order.candidateIds.length ? 'Full names, emails and phone numbers are now visible across the marketplace.' : 'Spend one credit to unlock any profile — individually or in bulk from the catalog.'}</p>
         </div>
         <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 p-5 text-sm">
           <div className="mb-3 flex items-center justify-between"><span className="flex items-center gap-2 font-extrabold text-slate-900"><Receipt size={16} /> Receipt {order.id}</span><Badge tone="emerald">Paid</Badge></div>
@@ -453,7 +472,7 @@ export function CheckoutModal() {
             <ul className="space-y-2">
               {cartItems.map((i) => (
                 <li key={i.key} className="flex justify-between gap-3">
-                  <span className="min-w-0 truncate text-slate-700">{i.type === 'bundle' ? `${i.name} (${i.candidates.length})` : i.candidate.role}</span>
+                  <span className="min-w-0 truncate text-slate-700">{i.type === 'bundle' ? `${i.name} (${i.candidates.length})` : i.type === 'package' ? `${i.pkg.name} ×${i.qty} · ${i.credits.toLocaleString('en-IN')} credits` : i.candidate.role}</span>
                   <span className="font-bold text-slate-900">{fmtINR(i.price)}</span>
                 </li>
               ))}

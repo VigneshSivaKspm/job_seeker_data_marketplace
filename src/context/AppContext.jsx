@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
-  ADMIN_CREDENTIALS, BUNDLES, INITIAL_CATEGORIES, INITIAL_PRICING, PROMOS, SEED_CANDIDATES, THEME_KEYS,
+  ADMIN_CREDENTIALS, BUNDLES, INITIAL_CATEGORIES, INITIAL_PACKAGES, INITIAL_PRICING, INITIAL_WALLET, PROMOS,
+  SEED_CANDIDATES, THEME_KEYS,
 } from '../lib/data.js';
 import {
   buildCsv, buildExcelHtml, buildSeedOrders, computePrice, downloadFile, matchesBundle, round2, slugify,
@@ -8,7 +9,7 @@ import {
 
 /* ------------------------------ APP CONTEXT ----------------------------- */
 
-const STORE_PREFIX = 'sx:v2:';
+const STORE_PREFIX = 'sx:v3:';
 
 /** useState that mirrors to localStorage and syncs across browser tabs (e.g. /join in one tab, /admin in another). */
 function usePersisted(key, initial, storage = 'local') {
@@ -42,11 +43,13 @@ export const useApp = () => useContext(AppContext);
 export function AppProvider({ children }) {
   const [categories, setCategories] = usePersisted('categories', INITIAL_CATEGORIES);
   const [pricing, setPricing] = usePersisted('pricing', INITIAL_PRICING);
+  const [packages, setPackages] = usePersisted('packages', INITIAL_PACKAGES);
   const [candidates, setCandidates] = usePersisted('candidates', SEED_CANDIDATES);
   const [orders, setOrders] = usePersisted('orders', () => buildSeedOrders(SEED_CANDIDATES, INITIAL_CATEGORIES, INITIAL_PRICING));
   const [cart, setCart] = usePersisted('cart', []);
   const [promo, setPromo] = usePersisted('promo', null);
   const [purchasedIds, setPurchasedIds] = usePersisted('purchased', []);
+  const [wallet, setWallet] = usePersisted('wallet', INITIAL_WALLET);
   const [buyer, setBuyer] = usePersisted('buyer', { name: '', email: '', company: '' });
   const [adminAuthed, setAdminAuthed] = usePersisted('admin', false, 'session');
   const [toasts, setToasts] = useState([]);
@@ -73,9 +76,10 @@ export function AppProvider({ children }) {
   const resetDemo = () => {
     setCategories(INITIAL_CATEGORIES);
     setPricing(INITIAL_PRICING);
+    setPackages(INITIAL_PACKAGES);
     setCandidates(SEED_CANDIDATES);
     setOrders(buildSeedOrders(SEED_CANDIDATES, INITIAL_CATEGORIES, INITIAL_PRICING));
-    setCart([]); setPromo(null); setPurchasedIds([]); setBuyer({ name: '', email: '', company: '' });
+    setCart([]); setPromo(null); setPurchasedIds([]); setWallet(INITIAL_WALLET); setBuyer({ name: '', email: '', company: '' });
     toast('Demo data restored');
   };
 
@@ -85,6 +89,12 @@ export function AppProvider({ children }) {
   const isUnlocked = (id) => purchasedSet.has(id);
   const rolesFor = (industryName) => categories.find((c) => c.name === industryName)?.roles || [];
   const getCandidate = (id) => candidates.find((c) => c.id === id);
+
+  /** Average single-profile price across the live catalogue — used to show bulk savings. */
+  const avgSinglePrice = useMemo(() => {
+    const live = candidates.filter((c) => c.status === 'Active');
+    return live.length ? live.reduce((s, c) => s + priceOf(c), 0) / live.length : 0;
+  }, [candidates, priceOf]);
 
   /* ---- bundles ---- */
   const resolveBundle = (b) =>
@@ -97,6 +107,9 @@ export function AppProvider({ children }) {
       if (item.type === 'lead') {
         const c = candidates.find((x) => x.id === item.candidateId);
         if (c && c.status === 'Active') out.push({ ...item, candidate: c, candidates: [c], gross: priceOf(c), price: priceOf(c) });
+      } else if (item.type === 'package') {
+        const pkg = packages.find((p) => p.id === item.packageId);
+        if (pkg) out.push({ ...item, pkg, candidates: [], credits: pkg.contacts * item.qty, gross: pkg.price * item.qty, price: pkg.price * item.qty });
       } else {
         const cs = item.candidateIds.map((id) => candidates.find((x) => x.id === id)).filter((c) => c && c.status === 'Active');
         if (cs.length) {
@@ -106,14 +119,15 @@ export function AppProvider({ children }) {
       }
     });
     return out;
-  }, [cart, candidates, priceOf]);
+  }, [cart, candidates, packages, priceOf]);
 
   const cartTotals = useMemo(() => {
     const gross = cartItems.reduce((s, i) => s + i.gross, 0);
     const subtotal = round2(cartItems.reduce((s, i) => s + i.price, 0));
     const promoDiscount = promo && subtotal >= promo.min ? round2((subtotal * promo.pct) / 100) : 0;
     const ids = new Set(cartItems.flatMap((i) => i.candidates.map((c) => c.id)));
-    return { gross: round2(gross), subtotal, bundleSavings: round2(gross - subtotal), promoDiscount, total: round2(subtotal - promoDiscount), leadCount: ids.size };
+    const credits = cartItems.reduce((s, i) => s + (i.credits || 0), 0);
+    return { gross: round2(gross), subtotal, bundleSavings: round2(gross - subtotal), promoDiscount, total: round2(subtotal - promoDiscount), leadCount: ids.size, credits };
   }, [cartItems, promo]);
 
   const coveredByBundle = useMemo(
@@ -143,6 +157,21 @@ export function AppProvider({ children }) {
     toast(`Bundle added · ${ids.length} profiles`);
   };
 
+  /** Add a bulk contact package (or one more of it) to the cart. */
+  const addPackageToCart = (packageId) => {
+    const pkg = packages.find((p) => p.id === packageId);
+    if (!pkg) return;
+    setCart((x) => {
+      const key = `pkg:${packageId}`;
+      return x.some((i) => i.key === key)
+        ? x.map((i) => (i.key === key ? { ...i, qty: Math.min(i.qty + 1, 20) } : i))
+        : [...x, { key, type: 'package', packageId, qty: 1 }];
+    });
+    toast(`${pkg.name} · ${pkg.contacts.toLocaleString('en-IN')} contacts added to cart`);
+  };
+  const setPackageQty = (key, qty) =>
+    setCart((x) => (qty < 1 ? x.filter((i) => i.key !== key) : x.map((i) => (i.key === key ? { ...i, qty: Math.min(qty, 20) } : i))));
+
   const removeFromCart = (key) => setCart((x) => x.filter((i) => i.key !== key));
 
   const applyPromo = (raw) => {
@@ -158,19 +187,24 @@ export function AppProvider({ children }) {
     const items = cartItems.map((i) => {
       const factor = i.gross ? i.price / i.gross : 1;
       i.candidates.forEach((c) => lines.push({ candidateId: c.id, industry: c.industry, role: c.role, price: round2(priceOf(c) * factor) }));
-      return i.type === 'lead'
-        ? { type: 'lead', name: `${i.candidate.role} · ${i.candidate.id}`, count: 1, price: i.price }
-        : { type: 'bundle', name: i.name, count: i.candidates.length, price: i.price, gross: i.gross, discount: i.discount };
+      if (i.type === 'lead') return { type: 'lead', name: `${i.candidate.role} · ${i.candidate.id}`, count: 1, price: i.price };
+      if (i.type === 'package')
+        return { type: 'package', name: `${i.pkg.name} ×${i.qty} · ${i.credits.toLocaleString('en-IN')} contact credits`, count: i.credits, price: i.price, credits: i.credits };
+      return { type: 'bundle', name: i.name, count: i.candidates.length, price: i.price, gross: i.gross, discount: i.discount };
     });
     const { subtotal, bundleSavings, promoDiscount, total } = cartTotals;
     const factor = subtotal ? total / subtotal : 1;
+    const credits = cartItems.reduce((s, i) => s + (i.credits || 0), 0);
+    const creditSpend = round2(cartItems.filter((i) => i.type === 'package').reduce((s, i) => s + i.price, 0) * factor);
     return {
       id: `ORD-${5000 + orders.length + 1}`,
       date: new Date().toISOString(),
       buyer: buyerInfo.name, email: buyerInfo.email, company: buyerInfo.company, method,
+      kind: credits && !lines.length ? 'package' : 'purchase',
       items,
       lines: lines.map((l) => ({ ...l, paid: round2(l.price * factor) })),
       candidateIds: [...new Set(lines.map((l) => l.candidateId))],
+      credits, creditSpend,
       subtotal, bundleSavings, promoCode: promoDiscount ? promo.code : null, promoDiscount, total,
       downloads: [], mine: true,
     };
@@ -179,9 +213,33 @@ export function AppProvider({ children }) {
   const commitOrder = (order) => {
     setOrders((o) => [order, ...o]);
     setPurchasedIds((p) => [...new Set([...p, ...order.candidateIds])]);
+    if (order.credits) setWallet((w) => ({ credits: w.credits + order.credits, bought: w.bought + order.credits, spent: round2(w.spent + order.creditSpend) }));
     setBuyer({ name: order.buyer, email: order.email, company: order.company });
     setCart([]);
     setPromo(null);
+  };
+
+  /** Spend 1 contact credit per profile. Returns the redemption record, or null if it could not be done. */
+  const unlockWithCredits = (ids) => {
+    const targets = [...new Set(ids)].map(getCandidate).filter((c) => c && c.status === 'Active' && !purchasedSet.has(c.id));
+    if (!targets.length) { toast('Nothing to unlock', 'error'); return null; }
+    if (wallet.credits < targets.length) { toast(`You need ${targets.length} credits but have ${wallet.credits}`, 'error'); return null; }
+    const rate = wallet.bought ? round2(wallet.spent / wallet.bought) : 0;
+    const n = targets.length;
+    const record = {
+      id: `ORD-${5000 + orders.length + 1}`,
+      date: new Date().toISOString(),
+      buyer: buyer.name || 'Recruiter', email: buyer.email, company: buyer.company, method: 'Credits', kind: 'redeem',
+      items: [{ type: 'credits', name: `Unlocked ${n} profile${n > 1 ? 's' : ''} with credits`, count: n, price: 0 }],
+      lines: targets.map((c) => ({ candidateId: c.id, industry: c.industry, role: c.role, price: rate, paid: rate })),
+      candidateIds: targets.map((c) => c.id), credits: 0, creditsUsed: n, creditSpend: 0,
+      subtotal: 0, bundleSavings: 0, promoCode: null, promoDiscount: 0, total: 0, downloads: [], mine: true,
+    };
+    setOrders((o) => [record, ...o]);
+    setWallet((w) => ({ ...w, credits: w.credits - n }));
+    setPurchasedIds((p) => [...new Set([...p, ...record.candidateIds])]);
+    toast(`${n} profile${n > 1 ? 's' : ''} unlocked · ${n} credit${n > 1 ? 's' : ''} used`);
+    return record;
   };
 
   const exportLeads = (ids, format, baseName, orderIds = []) => {
@@ -251,14 +309,31 @@ export function AppProvider({ children }) {
     setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, roles: c.roles.filter((r) => r !== role) } : c)));
   };
 
+  /* ---- bulk packages (admin) ---- */
+  const savePackage = (id, patch) => setPackages((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const setPopularPackage = (id) => setPackages((ps) => ps.map((p) => ({ ...p, popular: p.id === id ? !p.popular : false })));
+  const createPackage = ({ name, contacts, price }) => {
+    const clean = name.trim();
+    if (!clean) return toast('Enter a package name', 'error');
+    if (!(contacts > 0) || !(price > 0)) return toast('Contacts and price must be greater than zero', 'error');
+    setPackages((ps) => [...ps, { id: `pk-${Date.now()}`, name: clean, contacts: Math.round(contacts), price, popular: false, tagline: `${Math.round(contacts).toLocaleString('en-IN')} contact credits` }]);
+    toast(`Package "${clean}" created`);
+  };
+  const removePackage = (id) => {
+    setPackages((ps) => ps.filter((p) => p.id !== id));
+    setCart((x) => x.filter((i) => i.packageId !== id));
+  };
+
   const value = {
-    categories, pricing, candidates, orders, cart, promo, purchasedIds, buyer, toasts, adminAuthed,
+    categories, pricing, packages, candidates, orders, cart, promo, purchasedIds, wallet, buyer, toasts, adminAuthed,
     cartOpen, menuOpen, previewId, checkoutOpen,
     setCartOpen, setMenuOpen, setPreviewId, setCheckoutOpen, setPromo, toast, adminLogin, adminLogout, resetDemo,
-    priceOf, isUnlocked, rolesFor, getCandidate, resolveBundle,
-    cartItems, cartTotals, inCart, addLead, addBundle, removeFromCart, applyPromo, prepareOrder, commitOrder, exportLeads,
+    priceOf, avgSinglePrice, isUnlocked, rolesFor, getCandidate, resolveBundle,
+    cartItems, cartTotals, inCart, addLead, addBundle, addPackageToCart, setPackageQty, removeFromCart, applyPromo,
+    prepareOrder, commitOrder, unlockWithCredits, exportLeads,
     addCandidate, updateCandidate, deleteCandidate,
     setBasePrice, setRarity, setCategoryColor, renameCategory, addCategory, deleteCategory, addRole, deleteRole,
+    savePackage, setPopularPackage, createPackage, removePackage,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

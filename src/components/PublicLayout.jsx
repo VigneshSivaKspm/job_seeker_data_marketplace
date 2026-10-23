@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  BadgeCheck, ChevronRight, Home, Lock, Mail, Menu, ShieldCheck, ShoppingBag, Sparkles, Store, UserPlus, Unlock, Settings2,
+  BadgeCheck, ChevronRight, Coins, Layers, Home, Lock, Mail, Menu, ShieldCheck, ShoppingBag, Sparkles, Store, UserPlus, Unlock, Settings2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext.jsx';
 import { cx, fmtINR } from '../lib/utils.js';
@@ -30,7 +30,7 @@ function CartButton({ dark }) {
 }
 
 function Navbar() {
-  const { setMenuOpen } = useApp();
+  const { setMenuOpen, wallet } = useApp();
   const { pathname } = useLocation();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -53,6 +53,7 @@ function Navbar() {
         </nav>
         <div className="flex-1" />
         <div className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 xl:flex"><BadgeCheck size={14} /> Verified recruiters only</div>
+        {wallet.credits > 0 && <Link to="/marketplace/packages" className="hidden h-10 items-center gap-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 px-4 text-sm font-extrabold text-white shadow-md shadow-amber-500/25 sm:inline-flex" title="Contact credits"><Coins size={16} />{wallet.credits.toLocaleString('en-IN')}</Link>}
         <CartButton />
         {pathname !== '/join' && <Btn as={Link} to="/join" size="md" icon={Sparkles} className="hidden sm:inline-flex">Create free profile</Btn>}
         <button onClick={() => setMenuOpen(true)} aria-label="Open menu" className="rounded-full p-2.5 text-slate-700 hover:bg-slate-100 md:hidden"><Menu size={22} /></button>
@@ -96,6 +97,7 @@ function MenuSheet() {
     { to: '/', label: 'Home', icon: Home },
     { to: '/join', label: 'Create your profile', icon: UserPlus, hot: true },
     { to: '/marketplace', label: 'Browse talent data', icon: Store },
+    { to: '/marketplace/packages', label: 'Bulk contact packages', icon: Layers },
     { to: '/marketplace/bundles', label: 'Dataset bundles', icon: ShoppingBag },
     { to: '/marketplace/purchases', label: 'My purchases', icon: Unlock, count: purchasedIds.length },
     { to: '/admin', label: 'Admin console', icon: Settings2 },
@@ -132,7 +134,7 @@ function Footer() {
         </div>
         {[
           ['Job seekers', [['Create profile', '/join'], ['How it works', '/#how'], ['Privacy promise', '/#privacy'], ['FAQ', '/#faq']]],
-          ['Recruiters', [['Browse talent', '/marketplace'], ['Dataset bundles', '/marketplace/bundles'], ['My purchases', '/marketplace/purchases']]],
+          ['Recruiters', [['Browse talent', '/marketplace'], ['Bulk packages', '/marketplace/packages'], ['Dataset bundles', '/marketplace/bundles'], ['My purchases', '/marketplace/purchases']]],
           ['Company', [['Admin console', '/admin'], ['Contact', 'mailto:hello@seekerexchange.example']]],
         ].map(([h, ls]) => (
           <div key={h}>

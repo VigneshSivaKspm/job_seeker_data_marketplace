@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, Download, Package, Pencil, Plus, Receipt, Search, Trash2, Users, X } from 'lucide-react';
+import { Check, ChevronDown, Coins, Download, Package, Pencil, Plus, Receipt, Search, Star, Trash2, Users, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext.jsx';
 import { EXP_LEVELS, STATUSES, THEMES, THEME_KEYS } from '../../lib/data.js';
 import { toCandidateData, validateCandidate } from '../../lib/forms.js';
-import { buildCsv, cx, downloadFile, fmtDate, fmtDateTime, fmtINR, fmtINR2 } from '../../lib/utils.js';
+import { buildCsv, cx, downloadFile, fmtDate, fmtDateTime, fmtINR, fmtINR2, orderSummary } from '../../lib/utils.js';
 import { PersonalFields, ProfessionalFields, SearchStatusFields } from '../../components/CandidateFields.jsx';
 import {
   Avatar, Badge, Btn, Card, ConfirmDialog, EmptyState, Field, IndustryTile, Modal, NumberField, PillGroup, TextInput,
@@ -66,6 +66,48 @@ function CategoryEditor({ cat }) {
   );
 }
 
+/* ---- bulk contact packages ---- */
+
+function PackageRow({ p }) {
+  const { savePackage, setPopularPackage, removePackage } = useApp();
+  const [name, setName] = useState(p.name);
+  const [confirm, setConfirm] = useState(false);
+  useEffect(() => setName(p.name), [p.name]);
+  return (
+    <div className="rounded-2xl border border-slate-200 p-4">
+      <div className="grid items-end gap-3 sm:grid-cols-[1.2fr_1fr_1fr_auto]">
+        <Field label="Package name"><TextInput value={name} onChange={(e) => setName(e.target.value)} onBlur={() => (name.trim() ? savePackage(p.id, { name: name.trim() }) : setName(p.name))} className="!h-10" /></Field>
+        <Field label="Contacts" as="div"><NumberField value={p.contacts} min={1} step="any" onCommit={(v) => savePackage(p.id, { contacts: Math.round(v) })} className="[&_input]:!h-10" /></Field>
+        <Field label="Price" as="div"><NumberField value={p.price} min={1} prefix="₹" onCommit={(v) => savePackage(p.id, { price: v })} className="[&_input]:!h-10" /></Field>
+        <div className="flex items-center gap-1 pb-0.5">
+          <button onClick={() => setPopularPackage(p.id)} aria-pressed={p.popular} title={p.popular ? 'Remove "Most popular" badge' : 'Mark as most popular'} className={cx('rounded-full p-2.5 transition', p.popular ? 'bg-amber-100 text-amber-600' : 'text-slate-400 hover:bg-slate-100')}><Star size={16} fill={p.popular ? 'currentColor' : 'none'} /></button>
+          <button onClick={() => setConfirm(true)} aria-label={`Delete ${p.name}`} className="rounded-full p-2.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 size={16} /></button>
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">Works out to <b className="text-slate-800">{fmtINR2(p.price / p.contacts)}</b> per contact{p.popular && <Badge tone="amber" className="ml-2">Most popular</Badge>}</p>
+      <ConfirmDialog open={confirm} title="Delete package?" message={`"${p.name}" will no longer be offered, and is removed from any open carts.`} onCancel={() => setConfirm(false)} onConfirm={() => { removePackage(p.id); setConfirm(false); }} />
+    </div>
+  );
+}
+
+function PackagesCard() {
+  const { packages, createPackage } = useApp();
+  const [name, setName] = useState('');
+  const [contacts, setContacts] = useState(250);
+  const [price, setPrice] = useState(2200);
+  const sorted = useMemo(() => [...packages].sort((a, b) => a.contacts - b.contacts), [packages]);
+  return (
+    <Card title="Bulk contact packages" subtitle="Recruiters buy credits; 1 credit unlocks 1 candidate" action={<Badge tone="amber" icon={Coins}>{packages.length} packages</Badge>}>
+      <div className="space-y-3">{sorted.map((p) => <PackageRow key={p.id} p={p} />)}</div>
+      <form onSubmit={(e) => { e.preventDefault(); createPackage({ name, contacts, price }); setName(''); }} noValidate className="mt-5 flex flex-wrap items-end gap-3 rounded-2xl bg-slate-50 p-4">
+        <Field label="New package name" className="min-w-[180px] flex-1"><TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Agency" className="!h-10" /></Field>
+        <Field label="Contacts" as="div" className="w-32"><NumberField value={contacts} min={1} step="any" onCommit={setContacts} className="[&_input]:!h-10" /></Field>
+        <Field label="Price" as="div" className="w-36"><NumberField value={price} min={1} prefix="₹" onCommit={setPrice} className="[&_input]:!h-10" /></Field>
+        <Btn type="submit" icon={Plus} disabled={!name.trim()}>Add package</Btn>
+      </form>
+    </Card>
+  );
+}
 export function PricingPage() {
   const { pricing, setBasePrice, categories, addCategory } = useApp();
   const [newName, setNewName] = useState('');
@@ -74,12 +116,12 @@ export function PricingPage() {
   return (
     <div className="space-y-6">
       <div className="grid gap-6 xl:grid-cols-5">
-        <Card className="xl:col-span-2" title="Base price per profile" subtitle="By experience level (USD)">
+        <Card className="xl:col-span-2" title="Base price per profile" subtitle="By experience level (₹)">
           <div className="grid grid-cols-2 gap-4">
             {EXP_LEVELS.map((l) => (
               <div key={l} className="rounded-2xl border border-slate-200 p-3.5">
                 <div className="mb-2 flex items-center gap-2"><span className={cx('h-2.5 w-2.5 rounded-full bg-gradient-to-br', gradByLevel[l])} /><span className="text-sm font-extrabold text-slate-800">{l}</span></div>
-                <NumberField value={pricing.base[l]} min={1} prefix="$" onCommit={(v) => setBasePrice(l, v)} className="[&_input]:!h-11 [&_input]:text-lg [&_input]:font-extrabold" />
+                <NumberField value={pricing.base[l]} min={1} prefix="₹" onCommit={(v) => setBasePrice(l, v)} className="[&_input]:!h-11 [&_input]:text-lg [&_input]:font-extrabold" />
               </div>
             ))}
           </div>
@@ -103,8 +145,10 @@ export function PricingPage() {
         </Card>
       </div>
 
+      <PackagesCard />
+
       <Card title="Add business category">
-        <form onSubmit={(e) => { e.preventDefault(); addCategory(newName, newRarity); setNewName(''); setNewRarity(1); }} className="flex flex-wrap items-end gap-3">
+        <form onSubmit={(e) => { e.preventDefault(); addCategory(newName, newRarity); setNewName(''); setNewRarity(1); }} noValidate className="flex flex-wrap items-end gap-3">
           <Field label="Category name" className="min-w-[220px] flex-1"><TextInput value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Education & EdTech" /></Field>
           <Field label="Rarity multiplier" as="div" className="w-36"><NumberField value={newRarity} step={0.05} min={0.1} prefix="×" onCommit={setNewRarity} /></Field>
           <Btn type="submit" icon={Plus} size="lg" disabled={!newName.trim()}>Create</Btn>
@@ -250,7 +294,7 @@ export function OrdersPage() {
   return (
     <div>
       <div className="mb-5 grid grid-cols-3 gap-3">
-        {[['Orders', orders.length], ['Revenue', fmtINR2(revenue)], ['Downloads', orders.reduce((s, o) => s + o.downloads.length, 0)]].map(([k, v]) => (
+        {[['Orders', orders.filter((o) => o.kind !== 'redeem').length], ['Revenue', fmtINR2(revenue)], ['Downloads', orders.reduce((s, o) => s + o.downloads.length, 0)]].map(([k, v]) => (
           <div key={k} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-3.5 shadow-soft"><div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{k}</div><div className="text-xl font-extrabold text-slate-900 md:text-2xl">{v}</div></div>
         ))}
       </div>
@@ -262,23 +306,23 @@ export function OrdersPage() {
               <span className="min-w-0"><span className="block truncate text-sm font-bold text-slate-900">{o.buyer}</span><span className="block truncate text-xs text-slate-500">{o.company}</span></span>
               <span className="hidden text-xs text-slate-500 md:block">{fmtDateTime(o.date)}</span>
               <span className="hidden text-xs text-slate-600 md:block">{o.method}</span>
-              <span className="hidden text-xs text-slate-600 md:block">{o.candidateIds.length} leads</span>
-              <span className="text-right text-sm font-extrabold text-slate-900 md:text-left">{fmtINR2(o.total)}</span>
+              <span className="hidden text-xs text-slate-600 md:block">{orderSummary(o)}</span>
+              <span className="text-right text-sm font-extrabold text-slate-900 md:text-left">{o.kind === 'redeem' ? <Badge tone="amber" icon={Coins}>Credits</Badge> : fmtINR2(o.total)}</span>
               <ChevronDown size={16} className={cx('hidden text-slate-400 transition-transform md:block', open === o.id && 'rotate-180')} />
-              <span className="col-span-2 text-xs text-slate-400 md:hidden">{fmtDate(o.date)} · {o.method} · {o.candidateIds.length} leads · {o.downloads.length} downloads</span>
+              <span className="col-span-2 text-xs text-slate-400 md:hidden">{fmtDate(o.date)} · {o.method} · {orderSummary(o)} · {o.downloads.length} downloads</span>
             </button>
             {open === o.id && (
               <div className="grid animate-fade-in gap-6 border-t border-slate-100 bg-slate-50/70 p-5 md:grid-cols-2">
                 <div>
                   <h4 className="mb-3 text-[11px] font-extrabold uppercase tracking-widest text-slate-400">Purchased items</h4>
-                  <ul className="space-y-2 text-sm">{o.items.map((i, idx) => <li key={idx} className="flex justify-between gap-3"><span className="truncate text-slate-700">{i.type === 'bundle' && <Package size={13} className="mr-1 inline text-emerald-500" />}{i.name}{i.type === 'bundle' && ` (${i.count} profiles)`}</span><span className="font-bold">{fmtINR(i.price)}</span></li>)}</ul>
+                  <ul className="space-y-2 text-sm">{o.items.map((i, idx) => <li key={idx} className="flex justify-between gap-3"><span className="truncate text-slate-700">{i.type === 'bundle' && <Package size={13} className="mr-1 inline text-emerald-500" />}{i.type === 'package' && <Coins size={13} className="mr-1 inline text-amber-500" />}{i.name}{i.type === 'bundle' && ` (${i.count} profiles)`}</span><span className="font-bold">{fmtINR(i.price)}</span></li>)}</ul>
                   {o.promoCode && <p className="mt-3 text-xs font-semibold text-emerald-600">Promo {o.promoCode}: −{fmtINR2(o.promoDiscount)}</p>}
                   <p className="mt-2 text-xs text-slate-400">{o.email}</p>
                 </div>
                 <div>
                   <h4 className="mb-3 text-[11px] font-extrabold uppercase tracking-widest text-slate-400">Download log ({o.downloads.length})</h4>
                   {o.downloads.length ? <ul className="space-y-2 text-sm text-slate-600">{o.downloads.map((d, idx) => <li key={idx} className="flex items-center gap-2"><Download size={13} className="text-slate-400" /> {d.format} · {fmtDateTime(d.at)}</li>)}</ul> : <p className="text-sm text-slate-400">Dataset not downloaded yet.</p>}
-                  <p className="mt-3 break-words text-xs text-slate-400">Candidates: {o.candidateIds.join(', ')}</p>
+                  {o.candidateIds.length > 0 && <p className="mt-3 break-words text-xs text-slate-400">Candidates: {o.candidateIds.join(', ')}</p>}
                 </div>
               </div>
             )}

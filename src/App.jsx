@@ -7,7 +7,7 @@ import AdminLayout, { AdminLogin } from './pages/admin/AdminLayout.jsx';
 import { Btn, EmptyState, ScrollToTop, Spinner } from './components/ui.jsx';
 import Home from './pages/Home.jsx';
 import Join from './pages/Join.jsx';
-import Marketplace, { BundlesTab, Catalog, PurchasesTab } from './pages/Marketplace.jsx';
+import Marketplace, { BundlesTab, Catalog, PackagesTab, PurchasesTab } from './pages/Marketplace.jsx';
 
 // The admin console is code-split so job seekers never download it.
 const Dashboard = lazy(() => import('./pages/admin/Dashboard.jsx'));
@@ -36,6 +36,7 @@ export default function App() {
           <Route path="join" element={<Join />} />
           <Route path="marketplace" element={<Marketplace />}>
             <Route index element={<Catalog />} />
+            <Route path="packages" element={<PackagesTab />} />
             <Route path="bundles" element={<BundlesTab />} />
             <Route path="purchases" element={<PurchasesTab />} />
           </Route>
